@@ -34,9 +34,10 @@ func main() {
 }
 
 // CreateAndRunAppService wraps what would normally be in main() so that it can be unit tested
-func CreateAndRunAppService(serviceKey string, newServiceFactory func(string, interface{}) (appint.ApplicationService, bool)) int {
+func CreateAndRunAppService(serviceKey string, newServiceFactory func(string, any) (appint.ApplicationService, bool)) int {
 	var ok bool
-	var desiredBuffer []byte
+	// Asking the messaging client for an "any" will give us the generic un-marshaling of map[string]any
+	var desiredBuffer any
 	interfaces.App.Service, ok = newServiceFactory(serviceKey, &desiredBuffer)
 	if !ok {
 		return -1
