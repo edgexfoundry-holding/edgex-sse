@@ -1,0 +1,23 @@
+Writable:
+  LogLevel: INFO
+  StoreAndForward:
+    Enabled: false
+
+Service:
+  Host: localhost
+  Port: 59747
+  StartupMsg: HTTP Server Sent Events Application Service has started
+
+Trigger:
+  Type: edgex-messagebus
+  EdgexMessageBus:
+      SubscribeTopics: events/#, edgex/events/#
+      Optional:
+        ClientId: edgex-sse
+
+SSE:
+  SubscriptionLimit: 60
+  PrefixesLimit: 35000
+  EventBuffer: 1000
+  EventsAddr: 127.0.0.1
+  EventsPort: 59748

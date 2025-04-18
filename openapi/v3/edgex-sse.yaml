@@ -1,0 +1,316 @@
+openapi: 3.0.0
+info:
+  title: EdgeX Server Sent Events API
+  description: API for Application Service that delivers EdgeX events to a browser EventSource using SSE.
+  version: 0.9.0
+
+servers:
+  - url: /sse/api/v3
+    description: Access on target via API gateway
+  - url: http://localhost:59747/api/v3
+    description: URL for local development and testing
+  - url: http://localhost:59748/api/v3
+    description: URL for local development and testing (/events endpoint)
+
+security:
+  - token: []
+
+components:
+  securitySchemes:
+    token:
+      type: apiKey
+      description: "Token string returned from successful POST to /login"
+      name: X-Auth-Token
+      in: header
+  headers:
+    correlatedResponseHeader:
+      $ref: 'core-data.yaml#/components/headers/correlatedResponseHeader'
+  schemas:
+    Event:
+      $ref: 'core-data.yaml#/components/schemas/Event'
+    EdgexEvent:
+      type: string
+      description: 'EventSource-compatible event, type "edgex", data is JSON of an EdgeX event'
+      example: "event:edgex\ndata:{\"apiVersion\": \"v3\", \"deviceName\": \"device-002\", \"profileName\": \"profile-002\", \"sourceName\": \"source-3\", \"id\": \"d5471d59-2810-419a-8744-18eb8fa03465\", \"origin\": 1602168089665565200, \"readings\": [{\"deviceName\": \"device-002\", \"resourceName\": \"resource-002\", \"profileName\": \"profile-002\", \"id\": \"7003cacc-0e00-4676-977c-4e58b9612abd\", \"origin\": 1602168089665565200, \"valueType\": \"Float32\", \"value\": \"12.2\"}]}\n\n"
+    GenericEvent:
+      type: string
+      description: 'Unnamed EventSource-compatible event, data is the string representation of the event payload'
+      example: "data:{\"edgeAlarm\":{\"newAlarm\":{\"device\":\"dev1\",\"resource\":\"chan1\"}}\n\n"
+    BaseRequest:
+      $ref: 'app-functions-sdk.yaml#/components/schemas/BaseRequest'
+    BaseResponse:
+      $ref: 'app-functions-sdk.yaml#/components/schemas/BaseResponse'
+    ErrorResponse:
+      $ref: 'app-functions-sdk.yaml#/components/schemas/ErrorResponse'
+    SubscriptionDetailsRequest:
+      allOf:
+        - $ref: '#/components/schemas/BaseRequest'
+      type: object
+      required: ['include', 'exclude']
+      properties:
+        include:
+          description: 'List of topic prefixes included in the subscription. All topics beneath these are also included unless in the exclude list.'
+          type: array
+          items:
+            type: string
+        exclude:
+          description: 'List of topic prefixes NOT included in the subscription. Should be subsets of included topic prefixes.'
+          type: array
+          items:
+            type: string
+      example: 
+        include: ["edgex/events/device/TemperatureSensor", "edgex/events/device/Bacon-Cape"]
+        exclude: ["edgex/events/device/Bacon-Cape/Virtual-Bacon-Cape-02"]
+    SubscriptionDetailsResponse:
+      allOf:
+        - $ref: "#/components/schemas/BaseResponse"      
+        - $ref: '#/components/schemas/SubscriptionDetailsRequest'
+      example: 
+        apiVersion: 'v3'
+        statusCode: 200
+        requestId: '754b7755-2690-4f00-983b-83ce2e34c8cd'
+        message: ''
+        include: ["edgex/events/device/TemperatureSensor", "edgex/events/device/Bacon-Cape"]
+        exclude: ["edgex/events/device/Bacon-Cape/Virtual-Bacon-Cape-02"]
+  
+  parameters:
+    correlatedRequestHeader:
+      $ref: 'core-data.yaml#/components/parameters/correlatedRequestHeader'
+      required: false
+    subscription_id:
+      name: subscription_id
+      description: Text subscription ID returned from POST /subscription
+      schema:
+        type: string
+      in: path
+      required: true
+      example: F-344biMfgFzqAg5gprgRBe5
+
+  responses:
+    400Response:
+      description: 'The request body could not be parsed'
+      headers:
+        X-Correlation-ID:
+          $ref: '#/components/headers/correlatedResponseHeader'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            apiVersion: 'v3'
+            requestId: '754b7755-2690-4f00-983b-83ce2e34c8cd'
+            statusCode: 400
+            message: 'Could not unmarshal JSON'
+    404Response:
+      description: 'That subscription ID does not exist.'
+      headers:
+        X-Correlation-ID:
+          $ref: '#/components/headers/correlatedResponseHeader'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            apiVersion: 'v3'
+            requestId: '754b7755-2690-4f00-983b-83ce2e34c8cd'
+            statusCode: 404
+            message: 'That subscription ID does not exist'
+    503Response:
+      description: 'Limit reached'
+      headers:
+        X-Correlation-ID:
+          $ref: '#/components/headers/correlatedResponseHeader'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            subCreation:
+              value:
+                apiVersion: 'v3'
+                requestId: '754b7755-2690-4f00-983b-83ce2e34c8cd'
+                statusCode: 503
+                message: 'Limit on number of subscriptions has been reached.'
+            addList:
+              value:
+                apiVersion: 'v3'
+                requestId: '754b7755-2690-4f00-983b-83ce2e34c8cd'
+                statusCode: 503
+                message: 'Limit on number of include/exclude list entries has been reached for that subscription.'
+
+paths:
+  /events/{subscription_id}:
+    get:
+      summary: Read event stream
+      description: Get the stream of events corresponding to a particular subscription. This is meant for use with EventSource - it never completes the response unless the subscription is deleted. Actually served on a different port so it does not share timeouts with the other endpoints.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/subscription_id'
+      responses:
+        '200':
+          description: 'OK'
+          content:
+            text/event-stream:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/EdgexEvent'
+                  - $ref: '#/components/schemas/GenericEvent'
+        '204':
+          description: 'No Content - instructs browser EventSource to not re-connect'
+        '404':
+          $ref: '#/components/responses/404Response'
+
+  /subscription:
+    post:
+      summary: Create subscription
+      description: Create and return a new subscription ID.
+      parameters:
+        - $ref: '#/components/parameters/correlatedRequestHeader'
+      responses:
+        '201':
+          description: 'Created'
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/correlatedResponseHeader'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'              
+                type: object
+                required: ['subscriptionId']
+                properties:
+                  subscriptionId:
+                    description: 'ID of the new subscription, used in the URL path of other APIs.'
+                    type: string
+              example:
+                apiVersion: 'v3'
+                requestId: '754b7755-2690-4f00-983b-83ce2e34c8cd'
+                statusCode: 201
+                message: 'Created new subscription.'
+                subscriptionId: 'Zg3LY2mtyL3I2iTfnWBYvQ79'
+        '401':
+          description: 'X-Auth-Token header missing'
+        '403':
+          description: 'Permission denied'
+        '503':
+          $ref: '#/components/responses/503Response'
+
+  /subscription/id/{subscription_id}:
+    get:
+      summary: Get subscription details
+      description: 'Retrieve event topics this subscription is subscribed to.'
+      parameters:
+        - $ref: '#/components/parameters/correlatedRequestHeader'
+        - $ref: '#/components/parameters/subscription_id'
+      responses:
+        '200':
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/correlatedResponseHeader'
+          description: 'OK'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionDetailsResponse'
+        '401':
+          description: 'X-Auth-Token header missing'
+        '403':
+          description: 'Permission denied'
+        '404':
+          $ref: '#/components/responses/404Response'
+    delete:
+      summary: Delete a subscription
+      description: 'Remove a subscription and close its event stream connection'
+      parameters:
+        - $ref: '#/components/parameters/correlatedRequestHeader'
+        - $ref: '#/components/parameters/subscription_id'
+      responses:
+        '200':
+          description: 'Subscription was successfully deleted'
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/correlatedResponseHeader'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+        '401':
+          description: 'X-Auth-Token header missing'
+        '403':
+          description: 'Permission denied'
+        '404':
+          $ref: '#/components/responses/404Response'
+    put:
+      summary: 'Set subscription topic include/exclude lists'
+      description: "Set this subscription's topic include and exclude lists to those provided, overwriting previous entries."
+      parameters:
+        - $ref: '#/components/parameters/correlatedRequestHeader'
+        - $ref: '#/components/parameters/subscription_id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubscriptionDetailsRequest'
+      responses:
+        '200':
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/correlatedResponseHeader'
+          description: 'Sucessfully set'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BaseResponse"
+        '400':
+          $ref: '#/components/responses/400Response'
+        '401':
+          description: 'X-Auth-Token header missing'
+        '403':
+          description: 'Permission denied'
+        '404':
+          $ref: '#/components/responses/404Response'
+    patch:
+      summary: 'Update subscription topic include/exclude lists'
+      description: "Add these topics to the subscription's include and exclude lists. Adding an entry that is a prefix of another entry will remove the longer entry. To remove an entry, add the same entry to the other list."
+      parameters:
+        - $ref: '#/components/parameters/correlatedRequestHeader'
+        - $ref: '#/components/parameters/subscription_id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubscriptionDetailsRequest'
+      responses:
+        '200':
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/correlatedResponseHeader'
+          description: 'Sucessfully set'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BaseResponse"
+        '400':
+          $ref: '#/components/responses/400Response'
+        '401':
+          description: 'X-Auth-Token header missing'
+        '403':
+          description: 'Permission denied'
+        '404':
+          $ref: '#/components/responses/404Response'
+        '503':
+          $ref: '#/components/responses/503Response'
+
+  /config:
+    $ref: 'app-functions-sdk.yaml#/paths/~1config'
+  /ping:
+    $ref: 'app-functions-sdk.yaml#/paths/~1ping'
+  /secret:
+    $ref: 'app-functions-sdk.yaml#/paths/~1secret'
+  /trigger:
+    $ref: 'app-functions-sdk.yaml#/paths/~1trigger'
+  /version:
+    $ref: 'app-functions-sdk.yaml#/paths/~1version'
