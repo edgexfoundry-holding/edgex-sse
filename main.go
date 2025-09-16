@@ -7,15 +7,16 @@
 package main
 
 import (
-	"github.com/edgexfoundry-holding/edgex-sse/configuration"
-	"github.com/edgexfoundry-holding/edgex-sse/interfaces"
-	"github.com/edgexfoundry-holding/edgex-sse/submgr"
-	"github.com/edgexfoundry-holding/edgex-sse/web"
-	"github.com/edgexfoundry-holding/edgex-sse/functions"
 	"net/http"
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/edgexfoundry-holding/edgex-sse/configuration"
+	"github.com/edgexfoundry-holding/edgex-sse/functions"
+	"github.com/edgexfoundry-holding/edgex-sse/interfaces"
+	"github.com/edgexfoundry-holding/edgex-sse/submgr"
+	"github.com/edgexfoundry-holding/edgex-sse/web"
 
 	"github.com/edgexfoundry/app-functions-sdk-go/v4/pkg"
 	appint "github.com/edgexfoundry/app-functions-sdk-go/v4/pkg/interfaces"
@@ -36,9 +37,7 @@ func main() {
 // CreateAndRunAppService wraps what would normally be in main() so that it can be unit tested
 func CreateAndRunAppService(serviceKey string, newServiceFactory func(string, any) (appint.ApplicationService, bool)) int {
 	var ok bool
-	// Asking the messaging client for an "any" will give us the generic un-marshaling of map[string]any
-	var desiredBuffer any
-	interfaces.App.Service, ok = newServiceFactory(serviceKey, &desiredBuffer)
+	interfaces.App.Service, ok = newServiceFactory(serviceKey, &[]byte{})
 	if !ok {
 		return -1
 	}
@@ -67,7 +66,7 @@ func CreateAndRunAppService(serviceKey string, newServiceFactory func(string, an
 
 	ageout, err := time.ParseDuration(cfg.SSE.SubscriptionIdleExpiration)
 	ageoutInterval, err2 := time.ParseDuration(cfg.SSE.SubscriptionExpirationCheckInterval)
-	if (err != nil) || (err2 != nil) {  // probably cannot happen, checked in Validate()
+	if (err != nil) || (err2 != nil) { // probably cannot happen, checked in Validate()
 		lc.Error("Could not parse SubscriptionIdleExpiration and/or SubscriptionExpirationCheckInterval")
 		return -1
 	}
@@ -77,9 +76,11 @@ func CreateAndRunAppService(serviceKey string, newServiceFactory func(string, an
 	// Create function pipeline - all events we see are ran through these
 	// functions, in order.
 	processor := functions.NewProcessor(lc, subs)
+	// init_list := []string{"/dummy/topic"}
+	// err = svc.AddFunctionsPipelineForTopics("sse", init_list, processor.Publish)
 	err = svc.SetDefaultFunctionsPipeline(processor.Publish)
 	if err != nil {
-		lc.Errorf("SetDefaultFunctionsPipeline returned error: %s", err.Error())
+		lc.Errorf("Setting up the functions pipeline returned error: %s", err.Error())
 		return -1
 	}
 

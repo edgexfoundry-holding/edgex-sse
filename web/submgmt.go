@@ -8,20 +8,21 @@
 package web
 
 import (
-	"github.com/edgexfoundry-holding/edgex-sse/interfaces"
-	"github.com/edgexfoundry-holding/edgex-sse/submgr"
 	"encoding/json"
-	"github.com/edgexfoundry/go-mod-core-contracts/v4/common"
-	commonDTO "github.com/edgexfoundry/go-mod-core-contracts/v4/dtos/common"
-	"github.com/labstack/echo/v4"
 	"net/http"
 	"strings"
 	"sync"
+
+	"github.com/edgexfoundry-holding/edgex-sse/interfaces"
+	"github.com/edgexfoundry-holding/edgex-sse/submgr"
+	"github.com/edgexfoundry/go-mod-core-contracts/v4/common"
+	commonDTO "github.com/edgexfoundry/go-mod-core-contracts/v4/dtos/common"
+	"github.com/labstack/echo/v4"
 )
 
 var g_subscriptions map[string]*submgr.SubscriptionInfo
 
-var lockmgt   sync.RWMutex
+var lockmgt sync.RWMutex
 
 func sendResponse(w http.ResponseWriter, r *http.Request, response interface{}, statusCode int) {
 	correlationID := r.Header.Get(common.CorrelationHeader)
@@ -59,26 +60,43 @@ func addSubscription(w http.ResponseWriter, r *http.Request) {
 	rv := postReturn{}
 	rv.BaseResponse = commonDTO.NewBaseResponse("", "Subscription created", http.StatusCreated)
 	rv.SubscriptionId = subid
-	lockmgt.Lock()	
+	lockmgt.Lock()
+	defer lockmgt.Unlock()
 	if g_subscriptions == nil {
 		g_subscriptions = make(map[string]*submgr.SubscriptionInfo)
 	}
 	subInfo := subs.Subscription(subid)
 	if subInfo == nil {
 		w.WriteHeader(http.StatusNotFound)
-		lockmgt.Unlock()
 		return
 	}
 	g_subscriptions[subid] = subInfo
-	lockmgt.Unlock()	
 	sendResponse(w, r, rv, http.StatusCreated)
 }
+
+/* func updateTopics() {
+/ 	svc := interfaces.App.Service
+	subs := interfaces.App.Subs
+	include_list := subs.GetIncludeSet()
+	if len(include_list) == 0 {
+		include_list = append(include_list, "/dummy/topic/")
+	}
+	topic_list := make([]string, 0, len(include_list))
+	for _, inc := range include_list {
+		topic_list = append(topic_list, inc+"#")
+	}
+	if svc != nil { // this can be nil  in unit testing
+		svc.SetFunctionsPipelineTopics("sse", topic_list)
+	}
+}
+*/
 
 func deleteSubscription(w http.ResponseWriter, r *http.Request, subid string) {
 	lc := interfaces.App.Logger
 	subs := interfaces.App.Subs
 	lc.Debugf("Deleting subscription %s", subid)
 	subs.DeleteSubscription(subid)
+	// updateTopics()
 	respondBase(w, r, "", http.StatusOK, "Subscription deleted")
 }
 
@@ -154,6 +172,7 @@ func patchSubscription(w http.ResponseWriter, r *http.Request, subInfo *submgr.S
 			return
 		}
 	}
+	// updateTopics()
 	respondBase(w, r, "", http.StatusOK, "Subscription updated.")
 }
 
@@ -200,7 +219,7 @@ func ProcessSubscriptionRequest(c echo.Context) error {
 	if check1 {
 		w.WriteHeader(http.StatusNotFound)
 		return nil
-	}	
+	}
 	check2 := subs.IsChannelClosed(subInfo)
 	if check2 {
 		w.WriteHeader(http.StatusNotFound)

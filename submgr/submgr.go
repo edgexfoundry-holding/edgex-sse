@@ -25,13 +25,16 @@ to all channels returned from the match list above.
 package submgr
 
 import (
-	"github.com/edgexfoundry-holding/edgex-sse/token"
 	"errors"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/edgexfoundry-holding/edgex-sse/token"
 )
 
 // Struct ChannelMessage defines the messages to be sent through the managed channels.
@@ -56,7 +59,7 @@ type SubscriptionInfo struct {
 	process bool
 	// If active is false, when to auto-delete this subscription? Access under lock
 	expiration time.Time
-	lock   *sync.RWMutex
+	lock       *sync.RWMutex
 	// The channel to send events for this subscription
 	channel chan ChannelMessage
 	// if channel is closed, make the flag true
@@ -126,9 +129,9 @@ func (s byLength) Less(i, j int) bool {
 // SubscriptionManager methods
 
 // getAgeOutList (an internal API) returns a list of subscription IDs that
-// have been inactive too long. Is its own function so it can lock then defer unlock - 
+// have been inactive too long. Is its own function so it can lock then defer unlock -
 // we cannot delete subscriptions while holding that lock.
-func (s *SubscriptionManager) getAgeOutList() ([]string) {
+func (s *SubscriptionManager) getAgeOutList() []string {
 	rv := make([]string, 0, atomic.LoadUint32(&s.numSubscriptions))
 	checkTime := time.Now() // gets both wall-clock and monotonic, uses the appropriate one
 	s.lock.RLock()
@@ -172,13 +175,13 @@ Init sets up SubscriptionManager.
 It initializes the storage, saves away the limit values passed in,
 and starts a background task to prune inactive subscriptions.
 
-  sublimit: Number of simultaneous subscriptions allowed.
-  inexclimit: Number of simultaneous entries allowed in each subscription's include
-  and exclude topic lists (the limit applies separately to each list).
-  bufsize: Number of messages buffered on each channel. This is a balance between memory
-  usage and blocking at high event volumes.
-  maxage: How long a subscription can have nobody listening before it is auto-deleted.
-  checkinterval: How often to check for auto-deletion.
+	sublimit: Number of simultaneous subscriptions allowed.
+	inexclimit: Number of simultaneous entries allowed in each subscription's include
+	and exclude topic lists (the limit applies separately to each list).
+	bufsize: Number of messages buffered on each channel. This is a balance between memory
+	usage and blocking at high event volumes.
+	maxage: How long a subscription can have nobody listening before it is auto-deleted.
+	checkinterval: How often to check for auto-deletion.
 */
 func (s *SubscriptionManager) Init(sublimit uint32, incexclimit uint, bufsize uint, maxage time.Duration, checkinterval time.Duration) {
 	s.subscriptions = make(map[string]*SubscriptionInfo)
@@ -305,15 +308,11 @@ func (s *SubscriptionManager) AllSubscriptions() []*SubscriptionInfo {
 }
 
 // Whenever subscription is deleted, subscription string of subscription info is set to empty.
-// Hence below function checks whether subscription is deleted. 
+// Hence below function checks whether subscription is deleted.
 func (s *SubscriptionManager) IsSubscriptionDeleted(subInfo *SubscriptionInfo) bool {
 	subInfo.lock.Lock()
 	defer subInfo.lock.Unlock()
-	InfoId := subInfo.SubId
-	if InfoId == "" {
-		return true
-	}
-	return false
+	return subInfo.SubId == ""
 }
 
 // Whenever subscription channel is closed, channel closed flag of subscription info is set to empty.
@@ -321,11 +320,7 @@ func (s *SubscriptionManager) IsSubscriptionDeleted(subInfo *SubscriptionInfo) b
 func (s *SubscriptionManager) IsChannelClosed(subInfo *SubscriptionInfo) bool {
 	subInfo.lock.Lock()
 	defer subInfo.lock.Unlock()
-	InfoStatus := subInfo.IsClosedChan
-	if InfoStatus {
-		return true
-	}
-	return false
+	return subInfo.IsClosedChan
 }
 
 /*
@@ -547,6 +542,45 @@ func (s *SubscriptionManager) SubscribedChannels(topic string) []chan<- ChannelM
 			rv = append(rv, sub.channel)
 		}
 		sub.lock.RUnlock()
+	}
+	return rv
+}
+
+/*
+GetIncludeSet returns a list of all include topics across all subscriptions.
+
+Duplicates are removed, excludes are ignored, and entries that are 'covered'
+by others are also removed. This can be used to set the list of topic
+subscriptions for the service (each entry plus '#').
+*/
+func (s *SubscriptionManager) GetIncludeSet() []string {
+	currentNumSubscriptions := s.NumSubscriptions()
+	// First easy, common case: nobody is subscribed to anything
+	if currentNumSubscriptions == 0 {
+		return nil
+	}
+	// Arbitrary guess for initial capacity to cut down on reallocs
+	dupList := make(map[string]bool, currentNumSubscriptions*5)
+	sublist := s.AllSubscriptions()
+	for _, sub := range sublist {
+		sub.lock.RLock()
+		inclist := sub.includes
+		sub.lock.RUnlock()
+		for _, inc := range inclist {
+			dupList[inc] = true
+		}
+	}
+	full_inclist := slices.Sorted(maps.Keys(dupList))
+	// Remove entries that are prefixed by other entries
+	// Since these are sorted and all end in slashes,
+	// we only need to look at the most recent one not covered by another
+	last_used := ""
+	rv := make([]string, 0, len(full_inclist))
+	for _, inc := range full_inclist {
+		if (!strings.HasPrefix(inc, last_used)) || (last_used == "") {
+			rv = append(rv, inc)
+			last_used = inc
+		}
 	}
 	return rv
 }

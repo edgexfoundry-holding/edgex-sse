@@ -53,4 +53,4 @@ EXPOSE 59747
 EXPOSE 59748
 
 ENTRYPOINT ["/edgex-sse"]
-CMD ["-cp=keeper.http://edgex-core-keeper:59890", "--registry", "-o"]
+CMD ["-cp=keeper.http://edgex-core-keeper:59890", "--registry"]

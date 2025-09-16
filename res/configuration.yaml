@@ -10,10 +10,11 @@ Service:
 
 Trigger:
   Type: edgex-messagebus
-  EdgexMessageBus:
-      SubscribeTopics: events/#, edgex/events/#
-      Optional:
-        ClientId: edgex-sse
+  SubscribeTopics: '#'
+
+MessageBus:  
+  Optional:
+    ClientId: edgex-sse
 
 SSE:
   SubscriptionLimit: 60

@@ -28,7 +28,7 @@ func TestAddRemove(t *testing.T) {
 	if dut.chanBufferSize != 4 || dut.includeExcludeLimit != 3 || dut.subscriptionLimit != 2 {
 		t.Fatalf("Problem in init: sub/inc-exc limit / bufsize %d/%d/%d, expected 2/3/4", dut.subscriptionLimit, dut.includeExcludeLimit, dut.chanBufferSize)
 	}
-	if dut.idleSubscriptionCheckInterval != (30 * time.Second) || dut.maxIdleSubscriptionAge != (300 * time.Second) {
+	if dut.idleSubscriptionCheckInterval != (30*time.Second) || dut.maxIdleSubscriptionAge != (300*time.Second) {
 		t.Fatalf("Problem in init: intervals %v/%v, expected 30s/300s", dut.idleSubscriptionCheckInterval, dut.maxIdleSubscriptionAge)
 	}
 	first, err := dut.NewSubscription()
@@ -125,7 +125,11 @@ func TestInclude(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Error creating subscription: %v", err)
 	}
-	subinfo := dut.Subscription(subid)
+	subinfo := dut.Subscription("inexist")
+	if subinfo != nil {
+		t.Fatal("Subscription should not exist")
+	}
+	subinfo = dut.Subscription(subid)
 	if subinfo == nil {
 		t.Fatal("Subscription not found")
 	}
@@ -752,7 +756,7 @@ func TestAging(t *testing.T) {
 	}
 	dut.SetActive(subinfo2, true)
 	dut.SetActive(subinfo3, true)
-	time.Sleep(4*time.Second)
+	time.Sleep(4 * time.Second)
 	exists := dut.IsSubscriptionDeleted(subinfo1)
 	// _, _, exists := dut.SubscriptionInfo(subinfo1)
 	if !exists {
@@ -769,7 +773,7 @@ func TestAging(t *testing.T) {
 		t.Fatal("Active subscription 3 aged out")
 	}
 	dut.SetActive(subinfo2, false)
-	time.Sleep(4*time.Second)
+	time.Sleep(4 * time.Second)
 	// _, _, exists = dut.SubscriptionInfo(subinfo2)
 	exists = dut.IsSubscriptionDeleted(subinfo2)
 	if !exists {
@@ -779,5 +783,125 @@ func TestAging(t *testing.T) {
 	// _, _, exists = dut.SubscriptionInfo(subinfo3)
 	if exists {
 		t.Fatal("Active subscription 3 aged out")
+	}
+}
+
+func TestIncludeSet(t *testing.T) {
+	var dut SubscriptionManager
+	dut.Init(10, 10, 10, 300*time.Second, 30*time.Second)
+	defer dut.Close()
+	includeSet := dut.GetIncludeSet()
+	if len(includeSet) != 0 {
+		t.Fatal("Include set is not empty")
+	}
+	subid, err := dut.NewSubscription()
+	if err != nil {
+		t.Fatal("Unexpected error creating subscription")
+	}
+	subinfo := dut.Subscription(subid)
+	if subinfo == nil {
+		t.Fatal("Subscription not found")
+	}
+	dut.Include(subinfo, "a/b")
+	dut.Exclude(subinfo, "a/b/c")
+	includeSet = dut.GetIncludeSet()
+	if len(includeSet) != 1 || includeSet[0] != "a/b/" {
+		t.Fatal("Include set is incorrect")
+	}
+	dut.Include(subinfo, "x/y/")
+	includeSet = dut.GetIncludeSet()
+	if len(includeSet) != 2 {
+		t.Fatal("Include set is incorrect")
+	}
+	incs := make(map[string]bool)
+	for _, inc := range includeSet {
+		incs[inc] = true
+	}
+	_, ok := incs["a/b/"]
+	if !ok {
+		t.Fatal("a/b/ not found in includeset")
+	}
+	_, ok = incs["x/y/"]
+	if !ok {
+		t.Fatal("x/y/ not found in includeset")
+	}
+	othersubid, err := dut.NewSubscription()
+	if err != nil {
+		t.Fatal("Unexpected error creating subscription")
+	}
+	othersubinfo := dut.Subscription(othersubid)
+	if othersubinfo == nil {
+		t.Fatal("Subscription not found")
+	}
+	dut.Include(othersubinfo, "a/b")
+	includeSet = dut.GetIncludeSet()
+	if len(includeSet) != 2 {
+		t.Fatal("Include set is incorrect")
+	}
+	incs = make(map[string]bool)
+	for _, inc := range includeSet {
+		incs[inc] = true
+	}
+	_, ok = incs["a/b/"]
+	if !ok {
+		t.Fatal("a/b/ not found in includeset")
+	}
+	_, ok = incs["x/y/"]
+	if !ok {
+		t.Fatal("x/y/ not found in includeset")
+	}
+	dut.Include(othersubinfo, "a")
+	includeSet = dut.GetIncludeSet()
+	if len(includeSet) != 2 {
+		t.Fatal("Include set is incorrect")
+	}
+	incs = make(map[string]bool)
+	for _, inc := range includeSet {
+		incs[inc] = true
+	}
+	_, ok = incs["a/"]
+	if !ok {
+		t.Fatal("a/ not found in includeset")
+	}
+	_, ok = incs["x/y/"]
+	if !ok {
+		t.Fatal("x/y/ not found in includeset")
+	}
+}
+
+func TestSetProcess(t *testing.T) {
+	var dut SubscriptionManager
+	dut.Init(10, 10, 10, 300*time.Second, 30*time.Second)
+	defer dut.Close()
+
+	subid, err := dut.NewSubscription()
+	if err != nil {
+		t.Fatal("Unexpected error creating subscription")
+	}
+	subinfo := dut.Subscription(subid)
+	if subinfo == nil {
+		t.Fatal("Subscription not found")
+	}
+	dut.SetProcess(nil, true)
+	if subinfo.process {
+		t.Fatal("Subscription should not be processing")
+	}
+	if time.Time.Equal(subinfo.expiration, (time.Time{})) {
+		t.Fatal("Subscription expiration should not be zero")
+	}
+	dut.SetProcess(nil, true)
+	dut.SetProcess(subinfo, true)
+	if !subinfo.process {
+		t.Fatal("Subscription should be processing")
+	}
+	if !time.Time.Equal(subinfo.expiration, (time.Time{})) {
+		t.Fatal("Subscription expiration should be zero")
+	}
+	dut.SetProcess(subinfo, false)
+	if subinfo.process {
+		t.Fatal("Subscription should not be processing")
+	}
+	if time.Time.Equal(subinfo.expiration, (time.Time{})) {
+		t.Fatal("Subscription expiration should not be zero")
 	}
 }
