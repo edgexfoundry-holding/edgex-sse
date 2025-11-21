@@ -8,7 +8,7 @@ go 1.23.0
 // (same version of labstack/echo from transitive dependencies of app-functions-sdk-go, for convenience)
 require (
 	github.com/edgexfoundry/app-functions-sdk-go/v4 v4.0.0
-	github.com/edgexfoundry/go-mod-core-contracts/v4 v4.0.1
+	github.com/edgexfoundry/go-mod-core-contracts/v4 v4.0.2
 	github.com/labstack/echo/v4 v4.13.4
 )
 
